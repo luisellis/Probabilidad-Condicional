@@ -1,0 +1,105 @@
+---
+title: "Probabilidad Condicional y Regresion"
+author: 'Luis Ellis'
+date: "January 6, 2019"
+output: pdf_document
+---
+# Analisis Estadistico
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+```{r include=FALSE}
+setwd("YOURWD")
+```
+
+
+Antes de iniciar con todo el analisis, pasamos a definir todo nuestro environment:
+```{r message=FALSE}
+#Environment for this task
+library(tidyverse)
+library(olsrr)
+library(vtreat)
+library(dummies)
+library(stargazer)
+#Workspace
+diabetes = read_csv("diabetes.csv") 
+```
+## Probabilidad Condicional
+La primera parte del proyecto consta de realizar 3 Probabilidades condicionales, para esto tomamos los tres casos que pueden haber:
+
+* Por tipos de variables:
+  + Dos continuas
+  + Dos Categoricas
+  + Una continua y una categorica.
+  
+Comenzaremos de arriba para abajo, escogiendo la edad y el genero. Para escoger un grupo de categorias, encontramos el promedio de la edad `r mean(diabetes$age)`. Con este valor entonces procedemos a encontrar la probabilidad condicional.
+
+
+```{r}
+diabetes %>%
+  mutate(age_cat = ifelse(age >= 45, "at least 45", "less than 45")) %>%
+  count(age_cat, gender) %>%
+  spread(gender, n) %>%
+  mutate(prop = female / (female + male))
+```
+
+En este resultado vemos que tenemos a la derecha una columna que se llama "prop" si vemos como fue calculada, es de forma:
+$$
+P (\text{Mujer}|\text{Mayor a 45}) = \frac{P(\text{Mujer} \cap \text{Mayor a 45})}{\text{Mayor a 45}},
+$$
+Entonces los renglones seran B, o el evento dado, y las columnas seran A o el evento de interes para los calculos siguientes. Para este entonces, la probabilidad dado que la persona sea mayor a 45, que sea mujer es de $53%$.
+
+Los dos casos entonces aqui:
+```{r}
+#We then do it again with two continuous variables
+diabetes%>%
+  filter(
+    !is.na(chol), 
+    !is.na(hdl)
+  ) %>% 
+	mutate(chol_cat = ifelse(chol >=240, "High cholesterol", "Borderline or Good cholesterol")) %>%
+	mutate(hdl_cat = ifelse(hdl >= 50, "High Density Lipoprotein over 50", "Under 50")) %>%
+	count(chol_cat, hdl_cat) %>%
+	spread(hdl_cat, n) %>%
+	mutate(prop = 
+	         `High Density Lipoprotein over 50` / (`High Density Lipoprotein over 50` + `Under 50`))
+
+#And lastly, for 2 categorical variables:
+diabetes %>% 
+	count(location, gender) %>% 
+	spread(gender,n) %>%
+	mutate(prop = female / (female + male))
+```
+
+## Regresion
+
+El analisis de regresion es un tipo de analisis que usamos para estimar, o poder predecir una variable objetivo a partir de otras, como el futuro es incierto no nos queda mas que intentar predecir y luego verificar nuestras hipotesis de prediccion.
+
+En este analisis de regresion usamos el criterio de informacion de Akaike, que hacemos un intercambio entre bondad de ajuste y complejidad. El metodo fue escogido debido a que el dataset es un tema de salud y me parecio interesante ver como reducir la complejidad de los componentes de salud que simplemente usar el p-value.
+
+Para este dataset en particular se tuvo que eliminar dos variables que tenian muchos valores missing ya que no nos eran particularmente utiles. Luego de esto usamos un step backwaird eliminando variables con Akaike, y luego vimos el modelo final. No necesariamente es el mejor modelo, pero para nuestra data, se ha ajustado de buena forma. 
+
+```{r warning=FALSE}
+#Regression analysis 
+#Cleaning
+diabetes_cat <- dummy.data.frame(as.data.frame(diabetes), 
+                                  names = c("location","gender","frame"), sep="_")
+rownames(diabetes_cat) = diabetes_cat[,1]
+diabetes_cat <- diabetes_cat[,- c(1,20,21)] #Drop IDs, Second Diastolic and Syastolic are dropped due NAs
+#Model building
+model <- lm(chol ~ ., data = diabetes_cat)
+k <- ols_step_backward_aic(model)
+k
+
+formula <- as.formula("chol ~ hdl + ratio + glyhb  + location_Louisa + gender_female + 
+                      gender_male + height + weight + frame_large + frame_medium + 
+                      frame_small + bp.1d + hip + time.ppn ")
+diabetes_model <- lm(formula, data = diabetes_cat)
+summary(diabetes_model)
+```
+```{r warning=FALSE, results='asis'}
+stargazer(diabetes_model, type = "latex", title = "Modelo")
+```
+
+
+Terminamos con el modelo con un $R^2 \text{adj} = 0.73$ el cual nos arroja un buen resultado para el modelo en general. Para este proyecto no se necesitó cross-validation así que no llevamos a acabo mas experimentación con la muestra y el modelo.
